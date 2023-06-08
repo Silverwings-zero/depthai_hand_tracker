@@ -3,8 +3,14 @@
 
 from HandTrackerRenderer import HandTrackerRenderer
 import argparse
+import socket
+from itertools import chain
+
+
 
 parser = argparse.ArgumentParser()
+parser.add_argument('--send_data', action="store_true",
+                    help="send the hand landmarks to unity side")
 parser.add_argument('-e', '--edge', action="store_true",
                     help="Use Edge mode (postprocessing runs on the device)")
 parser_tracker = parser.add_argument_group("Tracker arguments")
@@ -49,6 +55,10 @@ args = parser.parse_args()
 dargs = vars(args)
 tracker_args = {a:dargs[a] for a in ['pd_model', 'lm_model', 'internal_fps', 'internal_frame_height'] if dargs[a] is not None}
 
+if args.send_data:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    serverAddressPort = ("127.0.0.1", 5054)
+
 if args.edge:
     from HandTrackerEdge import HandTracker
     tracker_args['use_same_image'] = not args.dont_force_same_image
@@ -82,7 +92,18 @@ while True:
     # 'bag' contains some information related to the frame 
     # and not related to a particular hand like body keypoints in Body Pre Focusing mode
     # Currently 'bag' contains meaningful information only when Body Pre Focusing is used
+    print("#################################")
     frame, hands, bag = tracker.next_frame()
+
+    for i in range(len(hands)):
+        print(hands[i].handedness)
+        print(hands[i].world_landmarks)
+        if args.send_data:
+            data = list(chain.from_iterable(hands[i].world_landmarks))
+            data.insert(0, hands[i].handedness)
+            sock.sendto(str.encode(str(data)), serverAddressPort)
+            
+
     if frame is None: break
     # Draw hands
     frame = renderer.draw(frame, hands, bag)
