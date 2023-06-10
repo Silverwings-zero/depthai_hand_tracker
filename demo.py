@@ -93,6 +93,9 @@ while True:
     # and not related to a particular hand like body keypoints in Body Pre Focusing mode
     # Currently 'bag' contains meaningful information only when Body Pre Focusing is used
     print("#################################")
+
+    #TODO: calibrate shape-display position, apply offset to the landmarks. especially the depth information, which need to be set to MAX(hand'z = -0.? based on the initial height of Pin). Then in Unity set xyz = xzy in python
+
     frame, hands, bag = tracker.next_frame()
 
     data = ""
