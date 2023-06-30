@@ -1,13 +1,32 @@
 #!/usr/bin/env python3
 
 import sys
-sys.path.append("../..")
+sys.path.append("c:\\Users\\axlab\\OneDrive\\Desktop\\Projects\\SHAPE-IT\\depthai_hand_tracker")
 from HandTrackerRenderer import HandTrackerRenderer
-from Filters import LandmarksSmoothingFilter
+from Filters import LandmarksSmoothingFilter, OneEuroFilter
 import argparse
 import numpy as np
 import cv2
 from o3d_utils import Visu3D
+class EMAFilter:
+    def __init__(self, alpha):
+        self.alpha = alpha
+        self.threshold = 0.1
+        self.prev_value = None
+
+    def __call__(self, value):
+        if self.prev_value is None:
+            self.prev_value = value
+        else:
+            if abs(value - self.prev_value) > self.threshold:
+                return self.prev_value
+                
+            else:
+                self.prev_value = self.alpha * value + (1 - self.alpha) * self.prev_value
+        return self.prev_value
+
+import socket
+from itertools import chain
 
 LINES_HAND = [[0,1],[1,2],[2,3],[3,4], 
             [0,5],[5,6],[6,7],[7,8],
@@ -138,6 +157,8 @@ parser_renderer3d.add_argument('-m', '--mode_3d', nargs='?',
                     help="Specify the 3D coordinates used. See README for description (default=%(default)s)")
 parser_renderer3d.add_argument('--no_smoothing', action="store_true", 
                     help="Disable smoothing filter (smoothing works only in solo mode)")   
+
+parser_renderer3d.add_argument('--send_data', action="store_true")  
 args = parser.parse_args()
 
 args.edge = True
@@ -145,6 +166,11 @@ if args.edge:
     from HandTrackerEdge import HandTracker
 else:
     from HandTracker import HandTracker
+
+if args.send_data:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    serverAddressPort = ("127.0.0.1", 5058)
+
 
 dargs = vars(args)
 tracker_args = {a:dargs[a] for a in ['pd_model', 'lm_model', 'internal_fps', 'internal_frame_height'] if dargs[a] is not None}
@@ -166,17 +192,80 @@ renderer2d = HandTrackerRenderer(tracker)
 pause = False
 hands = []
 
+#initialize EMAs
+alpha = 0.5
+filters0 = [EMAFilter(alpha=alpha) for _ in range(63)]
+filters1 = [EMAFilter(alpha=alpha) for _ in range(63)]
+
 while True:
+    
     # Run hand tracker on next frame
     if not pause:
+        print("#################################")
         frame, hands, bag = tracker.next_frame()
+        data = ""
         if frame is None: break
         # Render 2d frame
+        if hands:
+            data = []
+            lmList = []
+            lmList1 = []
+
+            hand0=hands[0] # get first hand detected
+            hand0Type = hand0.label
+            lmList.append(hand0Type)
+
+            wrist_xyz0 = hand0.xyz / 1000.0
+            wrist_xyz0[1] = -wrist_xyz0[1]
+            points0 = hand0.get_rotated_world_landmarks()
+            points0 = points0 + wrist_xyz0
+
+            #EMA filter
+            pointList0 = list(chain.from_iterable(points0))
+            for i, num in enumerate(chain.from_iterable(points0)):
+                pointList0[i] = filters0[i](num)
+
+
+            lmList.append(list(round(num, 5) for num in pointList0)) # Get the landmark list
+            print(list(round(num, 6) for num in pointList0))
+
+            if len(hands) == 1:
+                data = lmList
+
+            elif len(hands) == 2:
+                hand1=hands[1]
+                hand1Type = hand1.label
+                lmList1.append(hand1Type)
+
+                wrist_xyz1 = hand1.xyz / 1000.0
+                wrist_xyz1[1] = -wrist_xyz1[1]
+                points1 = hand1.get_rotated_world_landmarks()
+                points1 = points1 + wrist_xyz1
+
+                pointList1 = list(chain.from_iterable(points1))
+                for i, num in enumerate(chain.from_iterable(points1)):
+                    pointList1[i] = filters1[i](num)
+
+                lmList1.append(list(round(num, 5) for num in pointList1))
+
+                if hand1Type == "left":
+                    data = lmList1
+                    data.extend(lmList)
+                else:
+                    data = lmList
+                    data.extend(lmList1)
+
+        #send data with lower accuracy
+        #print(data)
+        
+
+        if args.send_data:
+            sock.sendto(str.encode(str(data)), serverAddressPort)
         frame = renderer2d.draw(frame, hands, bag)
         cv2.imshow("HandTracker", frame)
     key = cv2.waitKey(1)
     # Draw hands on open3d canvas
-    renderer3d.draw(hands)
+    #renderer3d.draw(hands)
     if key == 27 or key == ord('q'):
         break
     elif key == 32: # space

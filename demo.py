@@ -5,7 +5,7 @@ from HandTrackerRenderer import HandTrackerRenderer
 import argparse
 import socket
 from itertools import chain
-
+#use this: python .\demo.py -xyz --use_world_landmarks --send_data
 
 
 parser = argparse.ArgumentParser()
@@ -57,7 +57,7 @@ tracker_args = {a:dargs[a] for a in ['pd_model', 'lm_model', 'internal_fps', 'in
 
 if args.send_data:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    serverAddressPort = ("127.0.0.1", 5056)
+    serverAddressPort = ("127.0.0.1", 5058)
 
 if args.edge:
     from HandTrackerEdge import HandTracker
